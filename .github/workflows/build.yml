@@ -28,7 +28,10 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
   # ----------------------------------------------------------------
-  # Windows: erzeugt MqttMakroZentrale.exe (einzelne Datei)
+  # Windows: erzeugt MqttMakroZentrale.exe (einzelne Datei). Bewusst
+  # OHNE --noconsole gebaut: beim Start oeffnet sich ein Konsolen-
+  # fenster mit den Programm-Logs. Beenden = Fenster schliessen oder
+  # darin Strg+C druecken.
   # ----------------------------------------------------------------
   build-windows:
     needs: read-version
@@ -43,9 +46,9 @@ jobs:
       - name: Abhaengigkeiten installieren
         run: pip install -r requirements.txt
 
-      - name: EXE mit PyInstaller bauen
+      - name: EXE mit PyInstaller bauen (mit Konsolenfenster)
         run: >
-          pyinstaller --onefile --noconsole
+          pyinstaller --onefile
           --name MqttMakroZentrale
           --collect-all paho
           app.py
@@ -57,7 +60,11 @@ jobs:
           path: dist/MqttMakroZentrale.exe
 
   # ----------------------------------------------------------------
-  # macOS: erzeugt MqttMakroZentrale.app als gezipptes Artefakt
+  # macOS: erzeugt eine reine Konsolen-Binary (kein .app-Bundle mit
+  # --windowed, damit sie nicht "unsichtbar" im Hintergrund laeuft).
+  # Zusaetzlich ein Start-Skript, das per Doppelklick automatisch ein
+  # Terminal-Fenster oeffnet und darin die Binary ausfuehrt. Beenden =
+  # Terminal-Fenster schliessen oder darin Strg+C druecken.
   # ----------------------------------------------------------------
   build-macos:
     needs: read-version
@@ -72,17 +79,30 @@ jobs:
       - name: Abhaengigkeiten installieren
         run: pip install -r requirements.txt
 
-      - name: .app mit PyInstaller bauen
+      - name: Binary mit PyInstaller bauen (mit Terminalausgabe)
         run: >
-          pyinstaller --windowed
+          pyinstaller --onefile
           --name MqttMakroZentrale
           --collect-all paho
           app.py
 
-      - name: .app fuer den Upload zippen
+      - name: Doppelklick-Startskript erzeugen
+        run: |
+          cat > dist/Start-MqttMakroZentrale.command << 'EOS'
+          #!/bin/bash
+          # Oeffnet beim Doppelklick automatisch ein Terminal-Fenster
+          # und startet darin die MQTT-Makro-Zentrale. Zum Beenden das
+          # Terminal-Fenster schliessen oder hier Strg+C druecken.
+          cd "$(dirname "$0")"
+          ./MqttMakroZentrale
+          EOS
+          chmod +x dist/Start-MqttMakroZentrale.command
+          chmod +x dist/MqttMakroZentrale
+
+      - name: Fuer den Upload zippen (Rechte bleiben erhalten)
         run: |
           cd dist
-          zip -r MqttMakroZentrale-macos.zip MqttMakroZentrale.app
+          zip -r MqttMakroZentrale-macos.zip MqttMakroZentrale Start-MqttMakroZentrale.command
 
       - name: Artefakt hochladen
         uses: actions/upload-artifact@v4

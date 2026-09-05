@@ -32,7 +32,7 @@ Konfiguration:         config.json (liegt im selben Ordner wie das
 #   PATCH (x.x.+1) -> Bugfix, keine neuen Funktionen
 #   MINOR (x.+1.0) -> neue Funktion, abwaertskompatibel
 #   MAJOR (+1.0.0) -> Breaking Change (z. B. Config-Format aendert sich)
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.1.0"
 
 import os
 import sys
@@ -89,7 +89,8 @@ def load_config() -> dict:
         b.setdefault("password", "")
         b.setdefault("tls", False)
     for m in cfg["macros"]:
-        m.setdefault("trigger", {"enabled": False, "broker_id": "", "topic": ""})
+        m.setdefault("trigger", {"enabled": False, "broker_id": "", "topic": "", "payload": ""})
+        m["trigger"].setdefault("payload", "")
         m.setdefault("steps", [])
         for s in m["steps"]:
             s.setdefault("payload", "")
@@ -170,20 +171,22 @@ class TriggerManager:
     """Haelt pro Broker, der von mindestens einem aktiven Trigger
     verwendet wird, eine dauerhafte MQTT-Verbindung offen und startet
     das passende Makro, sobald eine Nachricht auf dem hinterlegten
-    Topic ankommt."""
+    Topic ankommt (und - falls angegeben - die Payload exakt zum
+    hinterlegten Trigger-Payload passt)."""
 
     def __init__(self):
         self._clients = {}      # broker_id -> mqtt.Client
-        self._topic_map = {}    # broker_id -> {topic: [macro_id, ...]}
+        self._topic_map = {}    # broker_id -> {topic: [{"macro_id":..., "payload":...}, ...]}
         self._lock = threading.RLock()
 
     def rebuild(self, cfg: dict) -> None:
         with self._lock:
-            needed = {}  # broker_id -> {topic: [macro_id, ...]}
+            needed = {}  # broker_id -> {topic: [{"macro_id":..., "payload":...}, ...]}
             for m in cfg["macros"]:
                 tr = m.get("trigger", {})
                 if tr.get("enabled") and tr.get("broker_id") and tr.get("topic"):
-                    needed.setdefault(tr["broker_id"], {}).setdefault(tr["topic"], []).append(m["id"])
+                    entry = {"macro_id": m["id"], "payload": tr.get("payload") or ""}
+                    needed.setdefault(tr["broker_id"], {}).setdefault(tr["topic"], []).append(entry)
 
             # Verbindungen zu nicht mehr benoetigten Brokern trennen
             for bid in list(self._clients.keys()):
@@ -230,9 +233,19 @@ class TriggerManager:
 
         def on_message(c, userdata, msg):
             with self._lock:
-                macro_ids = list(self._topic_map.get(bid, {}).get(msg.topic, []))
-            for mid in macro_ids:
-                start_macro(mid)
+                entries = list(self._topic_map.get(bid, {}).get(msg.topic, []))
+            if not entries:
+                return
+            try:
+                payload_str = msg.payload.decode("utf-8", errors="replace")
+            except Exception:
+                payload_str = ""
+            for entry in entries:
+                required_payload = entry.get("payload") or ""
+                # Leerer Trigger-Payload = loest bei jeder Nachricht auf
+                # diesem Topic aus; ansonsten nur bei exakter Uebereinstimmung.
+                if not required_payload or payload_str == required_payload:
+                    start_macro(entry["macro_id"])
 
         client.on_connect = on_connect
         client.on_message = on_message
@@ -460,7 +473,8 @@ def _validate_macro_payload(data: dict, cfg: dict):
     trigger = {
         "enabled": bool(trigger_in.get("enabled")),
         "broker_id": trigger_in.get("broker_id") or "",
-        "topic": (trigger_in.get("topic") or "").strip()
+        "topic": (trigger_in.get("topic") or "").strip(),
+        "payload": (trigger_in.get("payload") or "").strip()
     }
     if trigger["enabled"]:
         if trigger["broker_id"] not in broker_ids:
@@ -859,7 +873,9 @@ INDEX_HTML = r"""
           <input id="m_trigger_topic" placeholder="z. B. haus/schalter/start">
         </div>
       </div>
-      <div class="hint-text">Sobald auf diesem Broker eine Nachricht (egal welchen Inhalts) auf diesem Topic ankommt, startet das Makro automatisch.</div>
+      <label>Trigger-Payload (optional)</label>
+      <input id="m_trigger_payload" placeholder="leer lassen = jede Nachricht loest aus">
+      <div class="hint-text">Leer lassen, um bei jeder Nachricht auf diesem Topic auszuloesen (egal welchen Inhalts). Wird hier ein Wert eingetragen, startet das Makro nur, wenn die ankommende Payload exakt damit uebereinstimmt (z. B. <code>ON</code> oder <code>{"cmd":"start"}</code>).</div>
     </div>
 
     <label style="margin-top:6px;">Schritte</label>
@@ -930,7 +946,7 @@ function renderMacroCard(m){
   const expanded = expandedIds.has(m.id);
   const trig = m.trigger || {};
   const trigBadge = trig.enabled
-    ? `<span class="trigger-badge on">Auto: ${brokerName(trig.broker_id)} &rarr; ${trig.topic}</span>`
+    ? `<span class="trigger-badge on">Auto: ${brokerName(trig.broker_id)} &rarr; ${trig.topic}${trig.payload ? ` (Payload: ${escapeHtml(trig.payload)})` : ''}</span>`
     : `<span class="trigger-badge">manuell</span>`;
   const stateBadge = run.running
     ? `<span class="state-badge ${run.phase === 'waiting' ? 'waiting' : 'running'}">${run.phase === 'waiting' ? 'wartet' : 'laeuft'}</span>`
@@ -1111,6 +1127,7 @@ function openMacroModal(macroId=null){
     setTimeout(() => {
       document.getElementById('m_trigger_broker').innerHTML = brokerOptionsHtml(m.trigger.broker_id);
       document.getElementById('m_trigger_topic').value = m.trigger.topic || '';
+      document.getElementById('m_trigger_payload').value = m.trigger.payload || '';
     }, 0);
   } else {
     title.textContent = 'Neues Makro';
@@ -1120,6 +1137,7 @@ function openMacroModal(macroId=null){
     setTimeout(() => {
       document.getElementById('m_trigger_broker').innerHTML = brokerOptionsHtml(null);
       document.getElementById('m_trigger_topic').value = '';
+      document.getElementById('m_trigger_payload').value = '';
     }, 0);
   }
   toggleTriggerFields();
@@ -1236,7 +1254,8 @@ async function submitMacro(){
     trigger: {
       enabled: document.getElementById('m_trigger_enabled').checked,
       broker_id: document.getElementById('m_trigger_broker').value,
-      topic: document.getElementById('m_trigger_topic').value.trim()
+      topic: document.getElementById('m_trigger_topic').value.trim(),
+      payload: document.getElementById('m_trigger_payload').value.trim()
     },
     steps: stepsDraft.map(s => ({
       broker_id: s.broker_id, topic: s.topic, payload: s.payload,

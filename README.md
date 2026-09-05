@@ -96,6 +96,14 @@ Ordner wie die `.exe` bzw. die Binary gelegt werden (bzw. wird beim
 ersten Start automatisch mit Standardwerten neu angelegt, falls sie
 fehlt).
 
+## Installation auf einem Router (GL.iNet Brume 2)
+
+Die Makro-Zentrale kann statt auf einem PC auch direkt auf einem
+**GL.iNet Brume 2** (OpenWrt-Router) installiert werden, sodass sie
+24/7 mitlaeuft, ohne einen separaten PC dafuer laufen lassen zu
+muessen. Schritt-fuer-Schritt-Anleitung siehe
+[`docs/ANLEITUNG-GLiNet-Brume2.md`](docs/ANLEITUNG-GLiNet-Brume2.md).
+
 ## Automatischer Build per GitHub Actions
 
 Die Datei `.github/workflows/build.yml` baut bei jedem Push nach
@@ -132,6 +140,8 @@ Die Datei `.github/workflows/build.yml` baut bei jedem Push nach
 ├── requirements.txt
 ├── README.md
 ├── .gitignore
+├── docs/
+│   └── ANLEITUNG-GLiNet-Brume2.md
 └── .github/
     └── workflows/
         └── build.yml
@@ -152,7 +162,34 @@ Bei jeder ausgelieferten Aenderung:
 2. Den mitgelieferten Commit-Text fuer den jeweiligen Stand
    verwenden.
 
-### Commit-Text fuer diesen Stand (v1.0.1)
+### Commit-Text fuer diesen Stand (v1.1.0)
+
+```
+v1.1.0: Trigger-Payload fuer Makro-Ausloeser
+
+- Trigger eines Makros kann jetzt zusaetzlich zu Broker + Topic auch
+  eine erwartete Payload festlegen (neues Feld "Trigger-Payload" im
+  Makro-Dialog, optional)
+- Leeres Trigger-Payload-Feld = Makro startet weiterhin bei jeder
+  Nachricht auf dem Topic (bisheriges Verhalten)
+- Ist ein Wert eingetragen, startet das Makro nur noch, wenn die
+  ankommende MQTT-Payload exakt damit uebereinstimmt
+- Trigger-Badge auf der Makro-Karte zeigt die hinterlegte Payload
+  (falls gesetzt) mit an
+- config.json: trigger-Objekt jedes Makros hat ein neues Feld
+  "payload" (Standard: leerer String, bestehende Konfigurationen
+  werden beim naechsten Start automatisch ergaenzt)
+```
+
+### Aeltere Aenderungen (Doku, ohne Versionssprung)
+
+```
+docs: scp-Hinweis fuer Dropbear/SFTP-Inkompatibilitaet ergaenzt
+docs: Installationspfad auf dem Brume 2 nach /mqtt-makro-zentrale verschoben
+docs: Installationsanleitung fuer GL.iNet Brume 2 hinzugefuegt
+```
+
+### Commit-Text fuer v1.0.1
 
 ```
 v1.0.1: Programm laeuft immer mit sichtbarem Terminalfenster
@@ -173,11 +210,15 @@ v1.0.1: Programm laeuft immer mit sichtbarem Terminalfenster
   Port, optional Benutzername/Passwort, optional TLS). Ein Broker
   kann erst geloescht werden, wenn ihn kein Makro mehr verwendet.
 - **"+ Neues Makro"**: Name vergeben, optional einen Auto-Start-
-  Trigger (Broker + Topic) aktivieren, beliebig viele Schritte
-  hinzufuegen. Jeder Schritt hat einen eigenen Broker, ein Topic,
-  eine Payload, eine Anzahl Wiederholungen sowie eine Wartezeit
-  (Sekunden/Minuten), die danach vor dem naechsten Schritt abgewartet
-  wird.
+  Trigger (Broker + Topic, optional zusaetzlich eine Trigger-Payload)
+  aktivieren, beliebig viele Schritte hinzufuegen. Jeder Schritt hat
+  einen eigenen Broker, ein Topic, eine Payload, eine Anzahl
+  Wiederholungen sowie eine Wartezeit (Sekunden/Minuten), die danach
+  vor dem naechsten Schritt abgewartet wird.
+- **Trigger-Payload (optional):** Bleibt sie leer, startet das Makro
+  bei jeder Nachricht auf dem Trigger-Topic. Wird ein Wert eingetragen,
+  startet das Makro nur, wenn die ankommende Payload exakt damit
+  uebereinstimmt.
 - Makro-Karten lassen sich per Klick auf den Titel aufklappen — dort
   wird bei laufendem Makro der aktuelle Schritt farblich markiert und
   angezeigt, ob gerade gesendet oder gewartet wird.

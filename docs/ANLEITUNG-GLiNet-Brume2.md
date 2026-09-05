@@ -13,7 +13,7 @@ weder Windows noch macOS, also auch **kein PyInstaller-Build noetig**
 — stattdessen laeuft `app.py` direkt mit dem auf dem Router
 installierten Python-Interpreter. Es gibt auch kein "Terminal-
 fenster" wie am PC; Beenden/Neustarten laeuft ueber einen normalen
-OpenWrt-Dienst (siehe Abschnitt 6).
+OpenWrt-Dienst (siehe Abschnitt 8).
 
 Wichtig: Der Brume 2 hat **kein WLAN** — er wird ausschliesslich per
 Ethernet (LAN/WAN) angesteuert.
@@ -76,20 +76,69 @@ df -h /
 
 Ein paar hundert MB frei reichen locker aus.
 
-## 5. Projektdateien auf den Router kopieren
+## 5. Alte Installation dieses Programms entfernen (falls vorhanden)
 
-Zuerst auf dem Router den Zielordner direkt im Root-Verzeichnis
-anlegen (per SSH-Sitzung aus Schritt 1):
+**Wichtig:** Hier wird ausschliesslich die alte Installation *dieses*
+Programms (MQTT Makro-Zentrale) an ihrem bisherigen Ort entfernt.
+Andere auf dem Router laufende Dienste oder Programme werden dabei
+nicht angefasst.
+
+Den zur alten Installation gehoerenden Dienst stoppen (falls
+vorhanden):
 
 ```bash
-mkdir -p /mqtt-makro-zentrale
+/etc/init.d/mqttmakro stop 2>/dev/null
+```
+
+Pruefen, ob trotzdem noch ein `app.py`-Prozess dieses Programms
+laeuft:
+
+```bash
+ps w | grep app.py
+```
+
+Zeigt das eine laufende `python3 .../app.py`-Zeile, die zu dieser
+Makro-Zentrale gehoert, gezielt deren PID beenden (PID aus der
+`ps`-Ausgabe einsetzen):
+
+```bash
+kill <PID>
+```
+
+Alten Programmordner dieser Anwendung loeschen — das ist nur der
+zuvor angelegte Ordner `/mqtt-makro-zentrale` direkt im Root-
+Verzeichnis (nicht `/root`!), der durch die neue Installation unter
+`/root/mqtt-makro-zentrale` ersetzt wird:
+
+```bash
+ls -la /mqtt-makro-zentrale 2>/dev/null   # zur Kontrolle, was drin ist
+rm -rf /mqtt-makro-zentrale
+```
+
+Den zugehoerigen alten Autostart-Dienst entfernen (wird in Schritt 8
+unter dem neuen Pfad wieder angelegt):
+
+```bash
+/etc/init.d/mqttmakro disable 2>/dev/null
+rm -f /etc/init.d/mqttmakro
+```
+
+## 6. Projektdateien auf den Router kopieren
+
+Auf dem Router den neuen, einzigen Zielordner anlegen (per SSH-
+Sitzung aus Schritt 1) — bewusst direkt in `/root`, also genau dort,
+wo `ls` nach dem Login (im Home-Verzeichnis `~`) standardmaessig
+hinschaut:
+
+```bash
+mkdir -p /root/mqtt-makro-zentrale
 ```
 
 Danach auf deinem PC (nicht auf dem Router!), im Ordner mit `app.py`
 und `config.json`:
 
 ```bash
-scp -O -r app.py config.json root@192.168.8.1:/mqtt-makro-zentrale/
+scp -O -r app.py config.json root@192.168.8.1:/root/mqtt-makro-zentrale/
 ```
 
 (IP-Adresse ggf. an deine tatsaechliche Router-IP anpassen.)
@@ -109,12 +158,12 @@ scp -O -r app.py config.json root@192.168.8.1:/mqtt-makro-zentrale/
 > Tippfehler beim (nicht sichtbar angezeigten) Passwort — es ist das
 > Passwort des GL.iNet-Adminpanels, kein separates SSH-Passwort.
 
-## 6. Testlauf (manuell, im Vordergrund)
+## 7. Testlauf (manuell, im Vordergrund)
 
 Auf dem Router:
 
 ```bash
-cd /mqtt-makro-zentrale
+cd /root/mqtt-makro-zentrale
 python3 app.py
 ```
 
@@ -131,7 +180,7 @@ Zum Beenden dieses Testlaufs auf dem Router einfach **Strg+C**
 druecken — das ist hier das Aequivalent zum "Terminalfenster
 schliessen" am PC.
 
-## 7. Als dauerhaften Dienst einrichten (Autostart nach Neustart)
+## 8. Als dauerhaften Dienst einrichten (Autostart nach Neustart)
 
 Damit die Makro-Zentrale automatisch mit dem Router startet und im
 Hintergrund weiterlaeuft (auch nach einem Reboot), ein init-Skript
@@ -147,7 +196,7 @@ STOP=10
 USE_PROCD=1
 
 PROG=/usr/bin/python3
-APP_DIR=/mqtt-makro-zentrale
+APP_DIR=/root/mqtt-makro-zentrale
 
 start_service() {
     procd_open_instance
@@ -170,7 +219,7 @@ sofort starten:
 /etc/init.d/mqttmakro start
 ```
 
-## 8. Dienst bedienen (Start/Stopp/Neustart/Logs)
+## 9. Dienst bedienen (Start/Stopp/Neustart/Logs)
 
 Das ist hier das Aequivalent zum "Terminalfenster schliessen" bzw.
 "Strg+C" am PC:
@@ -182,7 +231,7 @@ Das ist hier das Aequivalent zum "Terminalfenster schliessen" bzw.
 logread -f                        # Logs live mitlesen (Strg+C zum Beenden der Ansicht)
 ```
 
-## 9. Firewall (normalerweise nicht noetig, aber zur Sicherheit)
+## 10. Firewall (normalerweise nicht noetig, aber zur Sicherheit)
 
 OpenWrt erlaubt standardmaessig allen Geraeten aus dem LAN Zugriff
 auf Dienste des Routers, daher sollte `http://192.168.8.1:8010` ohne
@@ -200,11 +249,13 @@ uci commit firewall
 /etc/init.d/firewall restart
 ```
 
-## 10. Wichtige Besonderheiten dieser Plattform
+## 11. Wichtige Besonderheiten dieser Plattform
 
 - **Config-Datei-Ort:** `config.json` liegt (wie gewuenscht) im
   selben Ordner wie `app.py`, hier also
-  `/mqtt-makro-zentrale/config.json`.
+  `/root/mqtt-makro-zentrale/config.json` — also im Home-Verzeichnis
+  des `root`-Nutzers (`~`), genau dort, wo `ls` direkt nach dem
+  SSH-Login standardmaessig hinschaut.
 - **Aenderungen an `app.py`:** Datei per `scp` erneut hochladen, dann
   `/etc/init.d/mqttmakro restart`.
 - **Firmware-Update des Routers:** Ein Firmware-Upgrade (`sysupgrade`)
@@ -220,3 +271,62 @@ uci commit firewall
 - **Geringer Stromverbrauch:** Der Brume 2 zieht im Betrieb nur ca.
   2 W, eignet sich also gut, um die Makro-Zentrale dauerhaft laufen
   zu lassen (kein separater PC noetig).
+
+## 12. Fehlerbehebung
+
+### "Ich habe per scp kopiert, finde die Dateien aber nicht auf dem Router"
+
+Ursache in praktisch allen Faellen: Der Zielordner
+`/root/mqtt-makro-zentrale` existierte zum Zeitpunkt des `scp`-Befehls
+nicht (mehr) auf dem Router. `scp -O -r ... root@IP:/root/mqtt-makro-zentrale/`
+kopiert **nur dann etwas**, wenn dieser Ordner bereits existiert —
+fehlt er, bricht der Befehl mit einer Fehlermeldung wie
+
+```
+scp: /root/mqtt-makro-zentrale/: No such file or directory
+```
+
+ab und es wird **gar nichts** kopiert (leicht zu uebersehen in einer
+laengeren Terminal-Ausgabe).
+
+**Loesung:** Ordner zuerst per SSH anlegen, danach erneut kopieren:
+
+```bash
+ssh root@<Router-IP> "mkdir -p /root/mqtt-makro-zentrale"
+scp -O -r app.py config.json root@<Router-IP>:/root/mqtt-makro-zentrale/
+ssh root@<Router-IP> "ls -la /root/mqtt-makro-zentrale"   # zur Kontrolle
+```
+
+### "Die config.json (oder der ganze Ordner) ist nach einiger Zeit einfach weg"
+
+Das deutet darauf hin, dass der beschreibbare Bereich des Routers
+zurueckgesetzt wurde — typischerweise durch eines der folgenden
+Ereignisse:
+
+- ein Firmware-Update (`sysupgrade`) ueber das GL.iNet-Adminpanel
+  oder per SSH,
+- ein Zuruecksetzen auf Werkseinstellungen (Factory Reset, z. B. per
+  Reset-Knopf),
+- seltener: ein Fehler im Overlay-Dateisystem nach einem harten
+  Stromausfall.
+
+Kurzer Check, ob es wirklich ein kompletter Reset war (per SSH):
+
+```bash
+ls -la /root/mqtt-makro-zentrale        # Programmordner noch da?
+ls -la /etc/init.d/mqttmakro       # Autostart-Dienst noch da?
+uptime                             # sehr geringe Uptime = kuerzlich neu gestartet
+```
+
+Fehlen **beide** Dateien/Ordner, wurde der komplette beschreibbare
+Bereich zurueckgesetzt — in dem Fall muessen die Schritte 6
+(Dateien kopieren) und 8 (init-Skript fuer den Autostart) einmal
+komplett wiederholt werden.
+
+**Empfehlung, um das kuenftig zu vermeiden:** `config.json`
+regelmaessig (z. B. nach jeder Aenderung an den Brokern/Makros) per
+`scp` auf den eigenen PC sichern:
+
+```bash
+scp -O root@<Router-IP>:/root/mqtt-makro-zentrale/config.json ./config-backup.json
+```

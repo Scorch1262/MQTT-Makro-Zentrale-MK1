@@ -1,0 +1,112 @@
+name: Build MQTT-Makro-Zentrale (Windows exe + macOS app)
+
+# Startet automatisch bei jedem Push auf main/master sowie bei jedem
+# Tag im Format v1.2.3, und kann zusaetzlich jederzeit manuell ueber
+# den "Run workflow"-Knopf im Actions-Tab gestartet werden.
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*.*.*" ]
+  workflow_dispatch: {}
+
+jobs:
+  # ----------------------------------------------------------------
+  # Version aus app.py auslesen (einzige Quelle der Wahrheit), damit
+  # Windows- und macOS-Job sowie der Release-Job dieselbe Versions-
+  # nummer im Dateinamen verwenden.
+  # ----------------------------------------------------------------
+  read-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.getver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: getver
+        run: |
+          VERSION=$(grep -oP '(?<=APP_VERSION = ")[^"]+' app.py)
+          echo "Gefundene Version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  # ----------------------------------------------------------------
+  # Windows: erzeugt MqttMakroZentrale.exe (einzelne Datei)
+  # ----------------------------------------------------------------
+  build-windows:
+    needs: read-version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Abhaengigkeiten installieren
+        run: pip install -r requirements.txt
+
+      - name: EXE mit PyInstaller bauen
+        run: >
+          pyinstaller --onefile --noconsole
+          --name MqttMakroZentrale
+          --collect-all paho
+          app.py
+
+      - name: Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: MqttMakroZentrale-${{ needs.read-version.outputs.version }}-windows
+          path: dist/MqttMakroZentrale.exe
+
+  # ----------------------------------------------------------------
+  # macOS: erzeugt MqttMakroZentrale.app als gezipptes Artefakt
+  # ----------------------------------------------------------------
+  build-macos:
+    needs: read-version
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Abhaengigkeiten installieren
+        run: pip install -r requirements.txt
+
+      - name: .app mit PyInstaller bauen
+        run: >
+          pyinstaller --windowed
+          --name MqttMakroZentrale
+          --collect-all paho
+          app.py
+
+      - name: .app fuer den Upload zippen
+        run: |
+          cd dist
+          zip -r MqttMakroZentrale-macos.zip MqttMakroZentrale.app
+
+      - name: Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: MqttMakroZentrale-${{ needs.read-version.outputs.version }}-macos
+          path: dist/MqttMakroZentrale-macos.zip
+
+  # ----------------------------------------------------------------
+  # Nur bei einem Versions-Tag (z. B. v1.2.3): beide Artefakte an ein
+  # GitHub-Release haengen.
+  # ----------------------------------------------------------------
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ read-version, build-windows, build-macos ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Release erstellen/aktualisieren
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.zip
+          generate_release_notes: true
